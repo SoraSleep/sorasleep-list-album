@@ -1,4 +1,4 @@
-import { loadAudio } from "@/lib/idb-audio";
+import { loadAudio, peakKey } from "@/lib/idb-audio";
 import { locate, totalDuration, type Song } from "@/lib/playlist";
 import { synthSong } from "@/lib/synth";
 
@@ -8,9 +8,13 @@ class PlaylistEngine {
   analyser: AnalyserNode | null = null;
   buffers = new Map<string, AudioBuffer>();
   raw = new Map<string, ArrayBuffer>();
+  peaks = new Map<string, Float32Array>();
+  decodedQueue: string[] = [];
   songs: Song[] = [];
   source: AudioBufferSourceNode | null = null;
   timer = 0;
+  prefetch = 0;
+  loadingId = "";
   token = 0;
   playing = false;
   origin = 0;
@@ -40,12 +44,29 @@ class PlaylistEngine {
     return this.origin + (this.ctx.currentTime - this.startedAt);
   }
 
+  buffer(id: string) {
+    return this.buffers.get(id);
+  }
+
+  bytes(id: string) {
+    return this.raw.get(id);
+  }
+
+  peaksOf(id: string) {
+    return this.peaks.get(id);
+  }
+
+  setPeaks(id: string, data: Float32Array) {
+    this.peaks.set(id, data);
+  }
+
   has(id: string) {
     return this.buffers.has(id);
   }
 
   setBuffer(id: string, buffer: AudioBuffer) {
     this.buffers.set(id, buffer);
+    this.keepDecoded(id);
   }
 
   remember(id: string, data: ArrayBuffer) {
@@ -55,31 +76,69 @@ class PlaylistEngine {
   forget(id: string) {
     this.buffers.delete(id);
     this.raw.delete(id);
+    this.peaks.delete(id);
+    this.decodedQueue = this.decodedQueue.filter((item) => item !== id);
+  }
+
+  /** Decode at most the song you are hearing. Packed Opus stays small; PCM does not. */
+  async hold(song: Song) {
+    if (song.source === "demo") {
+      if (!this.buffers.has(song.id)) {
+        this.setBuffer(song.id, synthSong(this.ensure(), song.tone, song.duration));
+      } else {
+        this.keepDecoded(song.id);
+      }
+      return;
+    }
+    if (song.source !== "file") return;
+    if (this.buffers.has(song.id)) {
+      this.keepDecoded(song.id);
+      return;
+    }
+    let raw = this.raw.get(song.id);
+    if (!raw) {
+      try {
+        raw = await loadAudio(song.id);
+      } catch {
+        raw = undefined;
+      }
+      if (raw) this.remember(song.id, raw);
+    }
+    if (!raw) return;
+    if (!this.peaks.has(song.id)) {
+      try {
+        const packed = await loadAudio(peakKey(song.id));
+        if (packed) this.peaks.set(song.id, new Float32Array(packed));
+      } catch {
+        /* wave can stay flat */
+      }
+    }
+    const copy = raw.slice(0);
+    this.raw.delete(song.id);
+    const buffer = await this.ensure().decodeAudioData(copy);
+    this.setBuffer(song.id, buffer);
+  }
+
+  private keepDecoded(id: string) {
+    this.decodedQueue = this.decodedQueue.filter((item) => item !== id);
+    this.decodedQueue.push(id);
+    while (this.decodedQueue.length > 2) {
+      const drop = this.decodedQueue.shift();
+      if (drop && drop !== id) this.buffers.delete(drop);
+    }
   }
 
   async ensureSongs(songs: Song[]) {
     const ctx = this.ensure();
     for (const song of songs) {
-      if (this.buffers.has(song.id)) continue;
-      if (song.source === "demo") {
-        this.buffers.set(song.id, synthSong(ctx, song.tone, song.duration));
-        await new Promise((resolve) => setTimeout(resolve, 0));
+      if (song.source !== "demo") continue;
+      if (this.buffers.has(song.id)) {
+        this.keepDecoded(song.id);
         continue;
       }
-      let raw = this.raw.get(song.id);
-      if (!raw && song.source === "file") {
-        try {
-          raw = await loadAudio(song.id);
-          if (raw) this.raw.set(song.id, raw);
-        } catch {
-          raw = undefined;
-        }
-      }
-      if (raw) {
-        const copy = raw.slice(0);
-        const buffer = await ctx.decodeAudioData(copy);
-        this.buffers.set(song.id, buffer);
-      }
+      if (this.decodedQueue.length >= 2) break;
+      this.setBuffer(song.id, synthSong(ctx, song.tone, song.duration));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
 
@@ -153,6 +212,10 @@ class PlaylistEngine {
 
   private arm(time: number, token: number) {
     if (token !== this.token || !this.playing || !this.ctx) return;
+    if (this.prefetch) {
+      window.clearTimeout(this.prefetch);
+      this.prefetch = 0;
+    }
     const songs = this.songs;
     const loc = locate(songs, time);
     const song = songs[loc.index];
@@ -174,6 +237,33 @@ class PlaylistEngine {
     };
 
     const buffer = this.buffers.get(song.id);
+    if (!buffer && song.source !== "none") {
+      if (this.loadingId === song.id) return;
+      this.loadingId = song.id;
+      void this.hold(song)
+        .finally(() => {
+          if (this.loadingId === song.id) this.loadingId = "";
+        })
+        .then(() => {
+          if (token !== this.token || !this.playing) return;
+          if (!this.buffers.has(song.id)) {
+            const remain = Math.max(0.05, song.duration - locate(songs, this.now()).local);
+            this.timer = window.setTimeout(goNext, remain * 1000);
+            return;
+          }
+          this.arm(this.now(), token);
+        });
+      return;
+    }
+    const upcoming = songs[loc.index + 1];
+    if (upcoming && upcoming.source !== "none" && !this.buffers.has(upcoming.id)) {
+      const wait = Math.max(0, (song.duration - loc.local - 20) * 1000);
+      this.prefetch = window.setTimeout(() => {
+        if (token !== this.token) return;
+        void this.hold(upcoming);
+      }, wait);
+    }
+
     if (!buffer) {
       const remain = Math.max(0.05, song.duration - loc.local);
       this.timer = window.setTimeout(goNext, remain * 1000);
@@ -200,6 +290,10 @@ class PlaylistEngine {
     if (this.timer) {
       window.clearTimeout(this.timer);
       this.timer = 0;
+    }
+    if (this.prefetch) {
+      window.clearTimeout(this.prefetch);
+      this.prefetch = 0;
     }
     const src = this.source;
     this.source = null;

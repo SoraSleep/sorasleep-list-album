@@ -16,11 +16,12 @@ function fit(canvas: HTMLCanvasElement, aspect: number) {
     ch = boxH;
     cw = ch * aspect;
   }
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.style.width = `${cw}px`;
   canvas.style.height = `${ch}px`;
-  const bw = Math.max(2, Math.round(cw * dpr));
-  const bh = Math.max(2, Math.round(ch * dpr));
+  const long = Math.max(cw, ch);
+  const scale = long > 1280 ? 1280 / long : 1;
+  const bw = Math.max(2, Math.round(cw * scale));
+  const bh = Math.max(2, Math.round(ch * scale));
   if (canvas.width !== bw || canvas.height !== bh) {
     canvas.width = bw;
     canvas.height = bh;
@@ -29,48 +30,81 @@ function fit(canvas: HTMLCanvasElement, aspect: number) {
 
 export function Stage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const paceRef = useRef<HTMLElement>(null);
   const smooth = useRef(0);
   const motion = useRef(0);
   const songs = useProject((s) => s.songs);
   const currentTime = useProject((s) => s.currentTime);
   const name = useProject((s) => s.name);
+  const titleA = useProject((s) => s.titleA);
+  const titleB = useProject((s) => s.titleB);
   const place = locate(songs, currentTime);
   const song = songs[place.index];
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+    if (!ctx) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     let last = performance.now();
+    let lastDraw = 0;
     let lastUi = 0;
+    let paceWindow = last;
+    let paceFrames = 0;
+    let paceDraw = 0;
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       if (!reduced) motion.current += dt;
       const live = useProject.getState();
-      fit(canvas, live.aspect === "wide" ? 16 / 9 : 9 / 16);
+      if (live.exporting) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       const t = engine.playing ? engine.now() : live.currentTime;
       const at = locate(live.songs, t);
       if (reduced) smooth.current = at.index;
       else smooth.current += (at.index - smooth.current) * (1 - Math.exp(-dt * 2.6 * live.glide));
-      const ctx = canvas.getContext("2d");
-      if (ctx && canvas.width > 2 && canvas.height > 2) {
-        drawList(ctx, {
-          songs: live.songs,
-          index: at.index,
-          local: at.local,
-          total: at.total,
-          time: t,
-          smooth: smooth.current,
-          motion: motion.current,
-          look: live.look,
-          name: live.name,
-          showArtist: live.showArtist,
-          showWave: live.showWave,
-          wave: engine.wave(),
-          glide: live.glide,
-        });
+      if (now - lastDraw >= 1000 / 30) {
+        lastDraw = now;
+        fit(canvas, live.aspect === "wide" ? 16 / 9 : 9 / 16);
+        if (canvas.width > 2 && canvas.height > 2) {
+          const drawAt = performance.now();
+          drawList(ctx, {
+            songs: live.songs,
+            index: at.index,
+            local: at.local,
+            total: at.total,
+            time: t,
+            smooth: smooth.current,
+            motion: motion.current,
+            look: live.look,
+            weather: live.weather,
+            fx: live.fx,
+            bg: live.bg,
+            name: live.name,
+            titleA: live.titleA,
+            titleB: live.titleB,
+            caption: live.caption,
+            artist: live.artist,
+            showArtist: live.showArtist,
+            showWave: live.showWave,
+            wave: engine.wave(),
+            glide: live.glide,
+          });
+          paceFrames += 1;
+          paceDraw += performance.now() - drawAt;
+        }
+      }
+      if (now - paceWindow >= 1000 && paceFrames > 0 && paceRef.current) {
+        const fps = (paceFrames * 1000) / (now - paceWindow);
+        const draw = paceDraw / paceFrames;
+        paceRef.current.textContent = ` · ${Math.round(fps)} fps · ${Math.round(draw)} ms`;
+        paceWindow = now;
+        paceFrames = 0;
+        paceDraw = 0;
       }
       if (engine.playing && now - lastUi > 120) {
         lastUi = now;
@@ -92,12 +126,14 @@ export function Stage() {
           <>
             <span className="font-display font-semibold text-accent">{padIndex(place.index)}</span>
             <span className="text-fg"> {song.title}</span>
-            {song.artist ? ` — ${song.artist}` : ""}
           </>
         ) : (
           "Thêm bài hát để chạy danh sách"
         )}
-        {name ? <span className="text-faint"> · {name}</span> : null}
+        {([titleA, titleB].filter(Boolean).join(" ") || name) ? (
+          <span className="text-faint"> · {[titleA, titleB].filter(Boolean).join(" ") || name}</span>
+        ) : null}
+        <span ref={paceRef} data-pace className="text-faint" />
       </p>
     </div>
   );

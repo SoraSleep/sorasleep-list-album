@@ -10,3 +10,5 @@ dist
 .env.*
 .DS_Store
 .node_modules.lock
+desktop/web
+release

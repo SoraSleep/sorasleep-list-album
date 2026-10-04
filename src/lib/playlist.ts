@@ -1,4 +1,5 @@
-export type LookId = "poster" | "list" | "ticker" | "vinyl" | "lake";
+export type LookId = "glass" | "night" | "poster";
+export type WeatherId = "none" | "rain" | "drops" | "snow" | "grain";
 export type SongSource = "demo" | "file" | "none";
 
 export type Song = {
@@ -11,12 +12,20 @@ export type Song = {
   tone: number;
 };
 
+export const MAX_SONGS = 12;
+
 export const LOOKS: { id: LookId; label: string; hint: string }[] = [
-  { id: "poster", label: "Mẫu 1", hint: "Bìa trôi bên trái, hai cột số bài bên phải — kiểu playlist chill." },
-  { id: "list", label: "Danh sách", hint: "Số thứ tự trượt, bài đang hát đứng giữa." },
-  { id: "ticker", label: "Chạy chữ", hint: "Dải tên bài chạy ngang không ngừng." },
-  { id: "vinyl", label: "Đĩa than", hint: "Đĩa quay bên trái, cột số bên phải." },
-  { id: "lake", label: "Hồ đen", hint: "Trượt chậm, chữ phản chiếu như Cut." },
+  { id: "poster", label: "Mẫu 1", hint: "Ảnh nền mờ. Bìa album xoay chậm bên trái, không đổi khi sang bài." },
+  { id: "night", label: "Mẫu 2", hint: "12 bài trên cửa sổ đêm, hàng nút sát hồ. Hồ phản chiếu cả khung." },
+  { id: "glass", label: "Mẫu 3", hint: "Ảnh đại diện bên phải. 12 bìa nằm trong khung kính. Nền mờ phía sau." },
+];
+
+export const WEATHERS: { id: WeatherId; label: string }[] = [
+  { id: "none", label: "Không" },
+  { id: "rain", label: "Mưa nhẹ" },
+  { id: "drops", label: "Kính mưa" },
+  { id: "snow", label: "Tuyết" },
+  { id: "grain", label: "Hạt phim" },
 ];
 
 export const DISC = ["#c8ccd4", "#d4b483", "#a8b0a4", "#b7a8b0", "#9aabb8", "#cbbba4"];
@@ -81,5 +90,7 @@ export function parseLines(text: string) {
 }
 
 export function titleFromFile(name: string) {
-  return name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim() || "Bài mới";
+  const base = name.split(/[/\\]/).pop() ?? name;
+  const title = base.replace(/\.[^.]+$/, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  return title || "Bài mới";
 }

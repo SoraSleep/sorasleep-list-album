@@ -1,6 +1,16 @@
 {
-  "name": "app-builder-workspace",
+  "name": "sorasleep-list",
+  "productName": "SoraSleep List",
   "private": true,
+  "version": "1.0.0",
+  "description": "SoraSleep List — playlist video studio",
+  "author": "SoraSleep",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SoraSleep/sorasleep-list-album.git"
+  },
+  "homepage": "https://github.com/SoraSleep/sorasleep-list-album",
+  "main": "desktop/main.mjs",
   "sideEffects": false,
   "type": "module",
   "overrides": {
@@ -18,7 +28,14 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "fonts": "node scripts/fetch-fonts.mjs",
+    "icon": "node scripts/make-icon.mjs",
+    "app": "electron ./desktop/main.mjs",
+    "app:prod": "node scripts/build-desktop.mjs && electron ./desktop/main.mjs --prod",
+    "dist": "node scripts/build-desktop.mjs && electron-builder --win nsis",
+    "dist:dir": "node scripts/build-desktop.mjs && electron-builder --win dir",
+    "release": "node scripts/build-desktop.mjs && electron-builder --win nsis --publish always"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -56,10 +73,12 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.0.0",
+    "electron-updater": "^6.8.9",
     "jose": "6.2.9",
     "kysely": "^0.28.5",
     "lightningcss": "^1.28.0",
     "lucide-react": "^0.510.0",
+    "mediabunny": "^1.61.1",
     "nitro": "3.0.260610-beta",
     "pg": "^8.16.3",
     "react": "^19.2.0",
@@ -84,6 +103,8 @@
     "@types/pg": "^8.11.10",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",

@@ -1,0 +1,47 @@
+appId: com.sorasleep.list
+productName: SoraSleep List
+copyright: SoraSleep
+asar: true
+directories:
+  output: release
+  buildResources: build
+files:
+  - desktop/main.mjs
+  - desktop/preload.cjs
+  - build/icon.png
+  - package.json
+extraResources:
+  - from: desktop/web
+    to: web
+forceCodeSigning: false
+publish:
+  provider: github
+  owner: SoraSleep
+  repo: sorasleep-list-album
+  releaseType: release
+  private: true
+win:
+  icon: build/icon.png
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SoraSleep List
+  installerLanguages:
+    - en_US
+    - vi_VN
+  artifactName: SoraSleep-List-Setup.${ext}
+  allowElevation: true
+linux:
+  target:
+    - dir
+mac:
+  target:
+    - dir

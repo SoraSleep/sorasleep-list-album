@@ -6,8 +6,7 @@ import { Stage } from "@/components/editor/stage";
 import { Timeline } from "@/components/editor/timeline";
 import { TopBar } from "@/components/editor/top-bar";
 import { cn } from "@/lib/cn";
-import { engine } from "@/lib/engine";
-import { loadAudio } from "@/lib/idb-audio";
+import { albumKey, hydrateImages, KEY_AVATAR, KEY_BG, seedDemoPlates } from "@/lib/images";
 import { persistSnapshot, restoreProject, useProject } from "@/lib/store";
 
 const TABS = [
@@ -23,32 +22,27 @@ export function EditorShell() {
 
   useEffect(() => {
     restoreProject();
-    void document.fonts?.load('600 48px "Be Vietnam Pro"').catch(() => undefined);
-    const warm = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const files = useProject.getState().songs.filter((song) => song.source === "file");
-          for (const song of files) {
-            const raw = await loadAudio(song.id);
-            if (!raw) continue;
-            engine.remember(song.id, raw);
-            const ctx = engine.ensure();
-            const buffer = await ctx.decodeAudioData(raw.slice(0));
-            engine.setBuffer(song.id, buffer);
-          }
-          await engine.ensureSongs(useProject.getState().songs.filter((song) => song.source === "demo"));
-        } catch {
-          /* phát lại khi bấm Play */
-        }
-      })();
-    }, 250);
+    const songs = useProject.getState().songs;
+    void hydrateImages([KEY_BG, KEY_AVATAR, ...songs.map((song) => albumKey(song.id))])
+      .then(() => seedDemoPlates(useProject.getState().songs.map((song) => song.id)))
+      .catch(() => undefined);
+    void document.fonts?.load('600 64px "Manrope"').catch(() => undefined);
+    void document.fonts?.load('500 22px "Be Vietnam Pro"').catch(() => undefined);
+    void document.fonts?.load('400 36px "Great Vibes"').catch(() => undefined);
 
     let last = "";
     const unsub = useProject.subscribe((state) => {
       const slim = JSON.stringify({
         name: state.name,
+        titleA: state.titleA,
+        titleB: state.titleB,
+        caption: state.caption,
+        artist: state.artist,
         aspect: state.aspect,
         look: state.look,
+        weather: state.weather,
+        fx: state.fx,
+        bg: state.bg,
         glide: state.glide,
         showArtist: state.showArtist,
         showWave: state.showWave,
@@ -72,7 +66,6 @@ export function EditorShell() {
     };
     window.addEventListener("keydown", onKey);
     return () => {
-      window.clearTimeout(warm);
       unsub();
       window.removeEventListener("keydown", onKey);
     };

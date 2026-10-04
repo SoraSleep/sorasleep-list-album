@@ -1,8 +1,10 @@
-import { useState } from "react";
-import { Download, Pause, Play, RectangleHorizontal, RectangleVertical, Square } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, Folder, Pause, Play, RectangleHorizontal, RectangleVertical, RefreshCw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { engine } from "@/lib/engine";
+import { isDesktop } from "@/lib/desktop";
+import { chooseExportFolder, exportFolderName, exportFolderReady } from "@/lib/export-dir";
 import { cancelExport, exportPlaylist } from "@/lib/export-list";
 import { formatTime, locate, totalDuration } from "@/lib/playlist";
 import { useProject } from "@/lib/store";
@@ -14,10 +16,16 @@ export function TopBar() {
   const currentTime = useProject((s) => s.currentTime);
   const songs = useProject((s) => s.songs);
   const exporting = useProject((s) => s.exporting);
-  const exportProgress = useProject((s) => s.exportProgress);
   const setName = useProject((s) => s.setName);
   const setAspect = useProject((s) => s.setAspect);
   const [busy, setBusy] = useState(false);
+  const [folder, setFolder] = useState("");
+  const [desktop, setDesktop] = useState(false);
+
+  useEffect(() => {
+    setDesktop(isDesktop());
+    void exportFolderName().then(setFolder).catch(() => undefined);
+  }, []);
 
   const total = totalDuration(songs);
   const place = locate(songs, currentTime);
@@ -50,9 +58,11 @@ export function TopBar() {
     if (busy || exporting) return;
     setBusy(true);
     try {
-      toast.message(limit ? "Đang xuất 20 giây đầu…" : "Đang xuất cả danh sách…");
-      await exportPlaylist(limit);
-      if (!canceling()) toast.success("Đã tải video WebM.");
+      await exportFolderReady();
+      toast.message(limit ? "Đang xuất 20 giây, 1080p…" : "Đang xuất 1080p. File ghi ra đĩa, không giữ cả video trong RAM.");
+      const saved = await exportPlaylist(limit);
+      if (saved === "cancel") return;
+      toast.success(saved === "folder" ? `Đã lưu video vào thư mục ${folder || "đã chọn"}.` : "Đã tải video WebM.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Xuất video thất bại");
       useProject.setState({ exporting: false, playing: false });
@@ -61,10 +71,44 @@ export function TopBar() {
     }
   }
 
+  async function pickFolder() {
+    try {
+      const name = await chooseExportFolder();
+      setFolder(name);
+      toast.success(`Video sẽ lưu vào ${name}.`);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      toast.error(err instanceof Error ? err.message : "Không chọn được thư mục");
+    }
+  }
+
+  async function updateApp() {
+    const api = window.soraDesktop;
+    if (!api?.checkUpdate) return;
+    const result = await api.checkUpdate();
+    if (!result.ok && (result.reason === "private-token" || result.needToken)) {
+      const token = window.prompt("Repo riêng. Dán GitHub token (quyền repo). Token chỉ lưu trên máy này.");
+      if (token && api.saveUpdateToken) {
+        await api.saveUpdateToken(token.trim());
+        toast.message("Đã lưu token. Bấm Cập nhật lần nữa.");
+      }
+      return;
+    }
+    if (!result.ok) {
+      toast.message(result.reason === "dev" ? "Bản dev không kiểm tra cập nhật." : "Không kiểm tra được bản mới.");
+      return;
+    }
+    if (result.latest && result.version && result.latest !== result.version) {
+      toast.message(`Có bản ${result.latest}. App sẽ hỏi khi tải xong.`);
+      return;
+    }
+    toast.success(`Đang dùng bản ${result.version ?? ""}.`);
+  }
+
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3">
       <div className="hidden items-center gap-2 sm:flex">
-        <span className="grid size-8 place-items-center rounded-md bg-subtle font-display text-sm font-semibold text-accent">
+        <span className="grid size-8 place-items-center rounded-sm bg-fg font-display text-sm font-semibold text-bg">
           L
         </span>
         <div className="leading-tight">
@@ -73,10 +117,11 @@ export function TopBar() {
         </div>
       </div>
       <input
-        aria-label="Tên playlist"
+        aria-label="Tên file xuất"
+        placeholder="Tên file xuất"
         value={name}
         onChange={(event) => setName(event.target.value)}
-        className="h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-sm text-fg outline-none focus:border-silver"
+        className="h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-sm text-fg outline-none placeholder:text-faint focus:border-silver"
       />
       <p className="hidden font-display text-sm tabular-nums text-muted md:block">
         {formatTime(currentTime)} · {formatTime(total)}
@@ -104,24 +149,30 @@ export function TopBar() {
       {exporting ? (
         <Button variant="ghost" onClick={() => cancelExport()}>
           <Square className="size-3.5" />
-          Hủy {Math.round(exportProgress * 100)}%
+          <span data-export-meter>Hủy 0%</span>
         </Button>
       ) : (
         <>
+          <Button variant="quiet" className="max-w-36 px-2" onClick={() => void pickFolder()} title={folder || "Chọn thư mục lưu video"}>
+            <Folder className="size-4 shrink-0" />
+            <span className="truncate">{folder || "Thư mục"}</span>
+          </Button>
           <Button variant="ghost" onClick={() => void runExport(20)} disabled={busy || !songs.length}>
             <Download className="size-4" />
             <span className="hidden sm:inline">20s</span>
           </Button>
           <Button variant="ghost" onClick={() => void runExport()} disabled={busy || !songs.length}>
             <Download className="size-4" />
-            <span className="hidden sm:inline">Cả list</span>
+            <span className="hidden sm:inline">YouTube</span>
           </Button>
+          {desktop ? (
+            <Button variant="quiet" onClick={() => void updateApp()}>
+              <RefreshCw className="size-4" />
+              <span className="hidden sm:inline">Cập nhật</span>
+            </Button>
+          ) : null}
         </>
       )}
     </header>
   );
-}
-
-function canceling() {
-  return !useProject.getState().exporting && useProject.getState().exportProgress === 0;
 }

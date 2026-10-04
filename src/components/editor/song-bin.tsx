@@ -3,14 +3,18 @@ import { ChevronDown, ChevronUp, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { engine } from "@/lib/engine";
-import { deleteAudio, saveAudio } from "@/lib/idb-audio";
-import { DEMO_SONGS, formatTime, locate, padIndex, parseLines, titleFromFile } from "@/lib/playlist";
+import { packFile, shouldPack } from "@/lib/audio-pack";
+import { deleteAudio, peakKey, saveAudio } from "@/lib/idb-audio";
+import { albumKey, clearImage } from "@/lib/images";
+import { DEMO_SONGS, formatTime, locate, MAX_SONGS, padIndex, parseLines, titleFromFile } from "@/lib/playlist";
 import { makeSong, useProject } from "@/lib/store";
 
 export function SongBin() {
   const songs = useProject((s) => s.songs);
+  const artist = useProject((s) => s.artist);
   const currentTime = useProject((s) => s.currentTime);
   const patchSong = useProject((s) => s.patchSong);
+  const setArtist = useProject((s) => s.setArtist);
   const addSongs = useProject((s) => s.addSongs);
   const removeSong = useProject((s) => s.removeSong);
   const moveSong = useProject((s) => s.moveSong);
@@ -27,36 +31,74 @@ export function SongBin() {
 
   async function onFiles(files: FileList | null) {
     if (!files?.length) return;
+    const existing = useProject.getState().songs.filter((song) => song.source !== "demo");
+    const room = MAX_SONGS - existing.length;
+    if (room <= 0) {
+      toast.error("Một list tối đa 12 bài. Xóa bớt rồi tải tiếp.");
+      return;
+    }
+    const picked = Array.from(files).slice(0, room);
+    if (picked.length < files.length) toast.message("Chỉ giữ đủ 12 bài.");
     const ctx = engine.ensure();
-    const start = useProject.getState().songs.length;
     const next = [];
-    for (const file of Array.from(files)) {
+    for (const file of picked) {
       try {
-        const raw = await file.arrayBuffer();
-        const buffer = await ctx.decodeAudioData(raw.slice(0));
-        const song = makeSong(start + next.length, {
+        const song = makeSong(existing.length + next.length, {
           title: titleFromFile(file.name),
           artist: "",
-          duration: buffer.duration,
+          duration: 15,
           source: "file",
         });
-        engine.remember(song.id, raw);
-        engine.setBuffer(song.id, buffer);
-        void saveAudio(song.id, raw).catch(() => undefined);
+        if (shouldPack(file)) {
+          const mb = Math.max(1, Math.round(file.size / (1024 * 1024)));
+          let shown = -1;
+          toast.loading(`Đang nén ${file.name} (${mb} MB)…`, { id: "pack" });
+          const packed = await packFile(file, (ratio) => {
+            const pct = Math.round(ratio * 100);
+            if (pct === shown) return;
+            shown = pct;
+            toast.loading(`Đang nén ${file.name} (${mb} MB)… ${pct}%`, { id: "pack" });
+          });
+          toast.dismiss("pack");
+          song.duration = packed.duration;
+          engine.remember(song.id, packed.bytes);
+          engine.setPeaks(song.id, packed.peaks);
+          const peaks = new ArrayBuffer(packed.peaks.byteLength);
+          new Float32Array(peaks).set(packed.peaks);
+          void saveAudio(song.id, packed.bytes).catch(() => undefined);
+          void saveAudio(peakKey(song.id), peaks).catch(() => undefined);
+        } else {
+          const raw = await file.arrayBuffer();
+          const decoded = await ctx.decodeAudioData(raw.slice(0));
+          song.duration = decoded.duration;
+          engine.remember(song.id, raw);
+          engine.setBuffer(song.id, decoded);
+          void saveAudio(song.id, raw).catch(() => undefined);
+        }
         next.push(song);
       } catch {
+        toast.dismiss("pack");
         toast.error(`Không đọc được ${file.name}`);
       }
     }
     if (next.length) {
-      stopIfPlaying();
-      addSongs(next);
-      toast.success(`Đã thêm ${next.length} bài`);
+      if (engine.playing) engine.pause();
+      for (const song of useProject.getState().songs) {
+        if (song.source === "demo") engine.forget(song.id);
+      }
+      replaceSongs([...existing, ...next]);
+      useProject.setState({ playing: false, currentTime: 0 });
+      const first = next[0]?.title;
+      toast.success(next.length === 1 && first ? `Đã thêm “${first}”` : `Đã thêm ${next.length} bài theo tên file`);
     }
   }
 
   function addBlank() {
     const count = useProject.getState().songs.length;
+    if (count >= MAX_SONGS) {
+      toast.error("Một list tối đa 12 bài.");
+      return;
+    }
     addSongs([makeSong(count, { title: `Bài ${count + 1}`, artist: "", source: "none", duration: 15 })]);
   }
 
@@ -64,7 +106,13 @@ export function SongBin() {
     const rows = parseLines(bulk);
     if (!rows.length) return;
     const count = useProject.getState().songs.length;
-    addSongs(rows.map((row, index) => makeSong(count + index, { ...row, source: "none", duration: 15 })));
+    const room = MAX_SONGS - count;
+    if (room <= 0) {
+      toast.error("Một list tối đa 12 bài.");
+      return;
+    }
+    addSongs(rows.slice(0, room).map((row, index) => makeSong(count + index, { ...row, source: "none", duration: 15 })));
+    if (rows.length > room) toast.message("Chỉ giữ đủ 12 bài.");
     setBulk("");
     setOpen(false);
   }
@@ -76,14 +124,14 @@ export function SongBin() {
       <div className="flex items-center justify-between px-4 py-3">
         <div>
           <p className="font-display text-sm font-semibold">Bài hát</p>
-          <p className="text-xs text-faint">{songs.length} bài · đánh số theo thứ tự</p>
+          <p className="text-xs text-faint">{songs.length}/{MAX_SONGS} · tên file thành tên bài</p>
         </div>
         <label className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-accent-fg">
           <Upload className="size-4" />
           Tải nhạc
           <input
             type="file"
-            accept="audio/*"
+            accept="audio/*,.wav,.wave,.flac,.mp3,.m4a,.aac,.ogg"
             multiple
             className="sr-only"
             onChange={(event) => {
@@ -93,18 +141,29 @@ export function SongBin() {
           />
         </label>
       </div>
+      <label className="block px-3 pb-3">
+        <span className="mb-1 block text-xs text-muted">Nghệ sĩ</span>
+        <input
+          value={artist}
+          maxLength={80}
+          placeholder="Tên của bạn, dùng cho cả list"
+          aria-label="Tên nghệ sĩ"
+          onChange={(event) => setArtist(event.target.value)}
+          className="h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-fg outline-none placeholder:text-faint focus:border-silver"
+        />
+      </label>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
         {songs.map((song, index) => {
           const on = index === place.index;
           return (
             <div
               key={song.id}
-              className={`rounded-md border px-2 py-2 ${on ? "border-accent bg-subtle" : "border-border bg-bg"}`}
+              className={`rounded-sm border px-2 py-2 ${on ? "border-fg bg-subtle" : "border-border bg-bg"}`}
             >
               <div className="flex items-start gap-2">
                 <button
                   type="button"
-                  className="mt-1 w-8 shrink-0 text-left font-display text-sm font-semibold text-accent tabular-nums"
+                  className="mt-1 w-8 shrink-0 text-left font-display text-sm font-semibold text-fg tabular-nums"
                   onClick={() => {
                     const start = songs.slice(0, index).reduce((sum, row) => sum + row.duration, 0);
                     if (engine.playing) engine.playFrom(start, useProject.getState().songs);
@@ -113,19 +172,12 @@ export function SongBin() {
                 >
                   {padIndex(index)}
                 </button>
-                <div className="min-w-0 flex-1 space-y-1">
+                <div className="min-w-0 flex-1">
                   <input
                     aria-label={`Tên bài ${index + 1}`}
                     value={song.title}
                     onChange={(event) => patchSong(song.id, { title: event.target.value })}
                     className="h-9 w-full rounded-sm bg-transparent px-1 text-sm text-fg outline-none focus:bg-subtle"
-                  />
-                  <input
-                    aria-label={`Nghệ sĩ bài ${index + 1}`}
-                    value={song.artist}
-                    placeholder="Nghệ sĩ"
-                    onChange={(event) => patchSong(song.id, { artist: event.target.value })}
-                    className="h-8 w-full rounded-sm bg-transparent px-1 text-xs text-muted outline-none placeholder:text-faint focus:bg-subtle"
                   />
                 </div>
               </div>
@@ -147,6 +199,7 @@ export function SongBin() {
                       stopIfPlaying();
                       engine.forget(song.id);
                       void deleteAudio(song.id).catch(() => undefined);
+                      void clearImage(albumKey(song.id)).catch(() => undefined);
                       removeSong(song.id);
                     }}
                   >
