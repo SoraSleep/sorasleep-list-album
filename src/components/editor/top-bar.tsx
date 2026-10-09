@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Folder, Pause, Play, RectangleHorizontal, RectangleVertical, RefreshCw, Square } from "lucide-react";
+import { Download, Folder, Pause, Play, RectangleHorizontal, RectangleVertical, RefreshCw, RotateCcw, RotateCw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { engine } from "@/lib/engine";
@@ -29,6 +29,14 @@ export function TopBar() {
 
   const total = totalDuration(songs);
   const place = locate(songs, currentTime);
+
+  function seekBy(delta: number) {
+    const live = useProject.getState();
+    const end = totalDuration(live.songs);
+    const time = Math.min(end, Math.max(0, live.currentTime + delta));
+    if (engine.playing) engine.playFrom(time, live.songs);
+    useProject.setState({ currentTime: time });
+  }
 
   async function toggle() {
     try {
@@ -121,7 +129,7 @@ export function TopBar() {
         placeholder="Tên file xuất"
         value={name}
         onChange={(event) => setName(event.target.value)}
-        className="h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-sm text-fg outline-none placeholder:text-faint focus:border-silver"
+        className="hidden h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-sm text-fg outline-none placeholder:text-faint focus:border-silver sm:block"
       />
       <p className="hidden font-display text-sm tabular-nums text-muted md:block">
         {formatTime(currentTime)} · {formatTime(total)}
@@ -143,8 +151,14 @@ export function TopBar() {
       >
         <RectangleVertical className="size-4" />
       </Button>
+      <Button variant="quiet" className="hidden w-10 px-0 md:inline-flex" aria-label="Lùi 5 giây" title="Lùi 5 giây (←)" onClick={() => seekBy(-5)}>
+        <RotateCcw className="size-4" />
+      </Button>
       <Button variant="solid" className="w-11 px-0" data-play aria-label={playing ? "Tạm dừng" : "Phát"} onClick={() => void toggle()} disabled={exporting}>
         {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+      </Button>
+      <Button variant="quiet" className="hidden w-10 px-0 md:inline-flex" aria-label="Tới 5 giây" title="Tới 5 giây (→)" onClick={() => seekBy(5)}>
+        <RotateCw className="size-4" />
       </Button>
       {exporting ? (
         <Button variant="ghost" onClick={() => cancelExport()}>

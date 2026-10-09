@@ -478,7 +478,8 @@ function paintWeather(ctx: CanvasRenderingContext2D, w: number, h: number, motio
   else if (weather === "snow") paintSnow(pen, width, height, motion);
   else if (weather === "grain") paintGrain(pen, width, height, motion);
   ctx.save();
-  ctx.globalAlpha = Math.min(1, amount);
+  const mix = Math.min(1, Math.max(0, amount));
+  ctx.globalAlpha = mix * mix * (3 - 2 * mix);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(fxCanvas, 0, 0, w, h);
   ctx.restore();

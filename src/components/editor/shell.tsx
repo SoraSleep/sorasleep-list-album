@@ -6,6 +6,7 @@ import { Stage } from "@/components/editor/stage";
 import { Timeline } from "@/components/editor/timeline";
 import { TopBar } from "@/components/editor/top-bar";
 import { cn } from "@/lib/cn";
+import { engine } from "@/lib/engine";
 import { albumKey, hydrateImages, KEY_AVATAR, KEY_BG, seedDemoPlates } from "@/lib/images";
 import { persistSnapshot, restoreProject, useProject } from "@/lib/store";
 
@@ -25,7 +26,8 @@ export function EditorShell() {
     const songs = useProject.getState().songs;
     void hydrateImages([KEY_BG, KEY_AVATAR, ...songs.map((song) => albumKey(song.id))])
       .then(() => seedDemoPlates(useProject.getState().songs.map((song) => song.id)))
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => window.dispatchEvent(new Event("sorasleep:assets-ready")));
     void document.fonts?.load('600 64px "Manrope"').catch(() => undefined);
     void document.fonts?.load('500 22px "Be Vietnam Pro"').catch(() => undefined);
     void document.fonts?.load('400 36px "Great Vibes"').catch(() => undefined);
@@ -58,11 +60,20 @@ export function EditorShell() {
     });
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.code !== "Space") return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>("[data-play]")?.click();
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
-      document.querySelector<HTMLButtonElement>("[data-play]")?.click();
+      const live = useProject.getState();
+      const total = live.songs.reduce((sum, song) => sum + song.duration, 0);
+      const time = Math.min(total, Math.max(0, live.currentTime + (event.key === "ArrowRight" ? 5 : -5)));
+      if (engine.playing) engine.playFrom(time, live.songs);
+      useProject.setState({ currentTime: time });
     };
     window.addEventListener("keydown", onKey);
     return () => {

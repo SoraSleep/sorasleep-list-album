@@ -35,14 +35,78 @@
   body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.055), transparent 34rem),
+      var(--color-bg);
   }
 
   button:active:not(:disabled) {
-    scale: 0.96;
+    transform: translateY(1px) scale(0.98);
   }
 
   input,
   textarea {
     font-family: inherit;
+  }
+
+  button,
+  input,
+  textarea,
+  [role="slider"] {
+    transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(244, 244, 244, 0.72);
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+}
+
+@layer components {
+  .preview-canvas {
+    box-shadow:
+      0 30px 80px rgba(0, 0, 0, 0.48),
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 48px rgba(183, 201, 218, 0.04);
+  }
+
+  .timeline::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--timeline-progress);
+    content: "";
+    background: linear-gradient(90deg, rgba(244, 244, 244, 0.13), rgba(244, 244, 244, 0.04));
+    pointer-events: none;
+  }
+
+  .timeline-segment:hover {
+    background: rgba(255, 255, 255, 0.045);
+  }
+
+  .preview-loading > span > span {
+    animation: preview-loading 1.1s ease-in-out infinite alternate;
+  }
+
+  input[type="range"] {
+    height: 18px;
+  }
+}
+
+@keyframes preview-loading {
+  from { transform: translateX(-45%); opacity: 0.45; }
+  to { transform: translateX(145%); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

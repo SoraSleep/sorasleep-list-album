@@ -155,14 +155,17 @@ export function SongBin() {
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
         {songs.map((song, index) => {
           const on = index === place.index;
+          const songProgress = on && song.duration > 0 ? Math.min(100, Math.max(0, (place.local / song.duration) * 100)) : 0;
           return (
             <div
               key={song.id}
-              className={`rounded-sm border px-2 py-2 ${on ? "border-fg bg-subtle" : "border-border bg-bg"}`}
+              style={on ? { background: `linear-gradient(90deg, rgba(244,244,244,.075) ${songProgress}%, var(--color-subtle) ${songProgress}%)` } : undefined}
+              className={`rounded-md border px-2 py-2 transition-colors ${on ? "border-fg shadow-[0_8px_24px_rgba(0,0,0,.2)]" : "border-border bg-bg hover:border-silver"}`}
             >
               <div className="flex items-start gap-2">
                 <button
                   type="button"
+                  aria-current={on ? "true" : undefined}
                   className="mt-1 w-8 shrink-0 text-left font-display text-sm font-semibold text-fg tabular-nums"
                   onClick={() => {
                     const start = songs.slice(0, index).reduce((sum, row) => sum + row.duration, 0);
